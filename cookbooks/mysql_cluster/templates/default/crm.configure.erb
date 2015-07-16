@@ -1,0 +1,12 @@
+primitive mysql_cluster ocf:heartbeat:mysql_cluster \
+    params password="_auth_key_" \
+    op monitor interval="3s" \
+    op start interval="0" timeout="10s" \
+    op stop interval="0" timeout="10s"
+ms ms_MySQL mysql_cluster \
+        meta master-max="1" master-node-max="1" clone-max="3" clone-node-max="1" notify="true" globally-unique="false" target-role="Started" is-managed="true"
+property $id="cib-bootstrap-options" \
+    dc-version="1.1.10-42f2063" \
+    cluster-infrastructure="classic openais (with plugin)" \
+    expected-quorum-votes="2" \
+    stonith-enabled="false"

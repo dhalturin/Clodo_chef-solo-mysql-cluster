@@ -1,0 +1,204 @@
+#!/bin/sh
+
+#######################################################################
+# Initialization:
+
+: ${OCF_FUNCTIONS_DIR=${OCF_ROOT}/lib/heartbeat}
+. ${OCF_FUNCTIONS_DIR}/ocf-shellfuncs
+
+SENDARP=$HA_BIN/send_arp
+FINDIF=$HA_BIN/findif
+VLDIR=$HA_RSCTMP
+USAGE="usage: $0 {start|stop|status|monitor|meta-data}";
+
+#######################################################################
+
+meta_data() {
+        cat <<END
+<?xml version="1.0"?>
+<!DOCTYPE resource-agent SYSTEM "ra-api-1.dtd">
+<resource-agent name="IPaddr">
+<version>1.0</version>
+<longdesc lang="en"></longdesc>
+<shortdesc lang="en"></shortdesc>
+
+<parameters>
+<parameter name="password" unique="1" required="1">
+<longdesc lang="en"></longdesc>
+<shortdesc lang="en">Password</shortdesc>
+<content type="string" default="" />
+</parameter>
+</parameters>
+
+<actions>
+<action name="start"   timeout="10s" />
+<action name="stop"    timeout="10s" />
+<action name="monitor" depth="0"  timeout="20s" interval="3s" />
+<action name="meta-data"  timeout="5s" />
+</actions>
+</resource-agent>
+END
+        exit $OCF_SUCCESS
+}
+
+rep_stop() {
+    ocf_log info "is stop >>>>>>>>"
+    rep_status_internal
+
+    return 0
+}
+
+rep_start() {
+    ocf_log info "is start <<<<<<<<<<"
+
+    return 0
+}
+
+rep_status_internal() {
+    if [ -f "/var/lib/mysql/.lock" ]; then
+        ocf_log info "Lock exists"
+        exit 0
+    fi
+
+    current=`crm status | grep Current | awk '{print $3}'`
+    if [ "${current}" = "NONE" ]; then
+        ocf_log info "none current host"
+        exit 0;
+    fi
+
+    # check slave status
+    status=`mysql -uroot -p${OCF_RESKEY_password} -e 'show slave status \G'`
+    master_ip=`grep "${current}" /etc/hosts | awk '{print $1}'`
+
+    if [ "${current}" = "`hostname`" ]; then
+        ocf_log info "this host is current master"
+
+        # check slave state
+        state=`echo "${status}" | grep Slave_IO_State | awk '{print $2}'`
+        master_current=`echo "${status}" | grep Slave_IO_State | awk '{print $2}'`
+
+        if [ ! -z "${state}" ]; then
+            ocf_log info "mysql is slave (status: ${state}). stop slave"
+            mysql -uroot -p${OCF_RESKEY_password} -e 'stop slave; reset master'
+        fi
+
+        nc -z ${master_ip} 3306 -w 3
+        ret="${?}"
+
+        ocf_log info "Netcat return: ${ret}, nc -z ${master_ip} 3306 -w 3"
+
+        if [ "${ret}" -gt "0" ]; then
+            ocf_log warn "master mysql is down. delete node (${current})"
+
+            #crm_node -R ${current} --force
+            killall -9 pacemakerd
+            /etc/init.d/pacemaker restart
+        fi
+    else
+        ocf_log info "current master host: ${current} (${master_ip})"
+
+        #check current master
+        master_current=`echo "${status}" | grep Master_Host | awk '{print $2}'`
+        if [ "${master_ip}" = "${master_current}" ]; then
+
+            # check slave status. if ok return 0
+            status=`mysql -uroot -p${OCF_RESKEY_password} -e 'show slave status \G'`
+            state=`echo "${status}" | grep -iE 'Slave_(.*)_Running' | grep -i yes | awk '{print $2}' | uniq -c | awk '{if (NR == 1) print $1}'`
+
+            nc -z ${master_ip} 3306 -w 3
+            ret="${?}"
+
+            ocf_log info "Slave state: ${state}, netcat return: ${ret}"
+
+            if [ "${state}" -eq "2" ] || [ "${ret}" -eq "0" ]; then
+                return 0
+            fi
+        fi
+
+        master_log_pos=`mysqldump -h${master_ip} -uroot -p${OCF_RESKEY_password} --master-data -A 2>&1 | head -n 80| grep 'MASTER_LOG_POS' | sed 's/--//' | sed 's/;//'`
+        #master_change="${master_log_pos}, master_host='${master_ip}', master_user='root', master_password='${OCF_RESKEY_password}'"
+        master_change="change master to master_log_file='mysql-bin.000001', master_log_pos=107, master_host='${master_ip}', master_user='root', master_password='${OCF_RESKEY_password}'"
+        ocf_log info "change master: ${master_change}"
+
+        echo "stop slave; reset slave; ${master_change}; start slave" | mysql -uroot -p${OCF_RESKEY_password}
+        /etc/init.d/mysql restart
+    fi
+    return 0
+
+    current_ip=`ip -4 a s dev eth0 | grep inet | cut -f1 -d'/' | cut -f6 -d' '`
+    if [ "${current_ip}" = "${OCF_RESKEY_master_ip}" ]; then
+        # при желании - обрабокта событий для мастер ноды
+        ocf_log info "Ignore master node"
+        return 0
+    fi
+
+    if [ -f "/var/lib/mysql/.lock" ]; then
+        ocf_log info "Lock exists"
+        exit 0
+    fi
+
+    # check slave status. if ok return 0
+    status=`mysql -uroot -p${OCF_RESKEY_password} -e 'show slave status \G'`
+    state=`echo "${status}" | grep -iE 'Slave_(.*)_Running' | awk '{print $2}' | uniq -c | awk '{if (NR == 1) print $1}'`
+
+    nc -z ${OCF_RESKEY_master_ip} 3306 -w 3
+    ret="${?}"
+
+    ocf_log info "Slave state: ${state}, netcat return: ${ret}"
+
+    if [ "${state}" -lt "2" ] || [ "${ret}" -gt "0" ]; then
+        ocf_log warn "master mysql is down. slave -> master"
+        mysql -uroot -p${OCF_RESKEY_password} -e 'stop slave; reset master'
+        touch /var/lib/mysql/.lock
+    fi
+
+    return 0
+}
+
+rep_status() {
+    ocf_log info "status !!!! $OCF_CHECK_LEVEL $OCF_SUCCESS"
+
+    rep_status_internal
+    rc=$?
+    if [ $rc = $OCF_SUCCESS ]; then
+	echo "running"
+    elif [ $rc = $OCF_NOT_RUNNING ]; then
+	echo "stopped"
+    else
+	echo "unknown"
+    fi
+    return $rc;
+}
+
+rep_monitor() {
+    rep_status_internal
+
+    return 0
+}
+
+rep_validate_all() {
+    return 0
+}
+
+usage() {
+    echo $USAGE >&2
+    return $1
+}
+
+if [ $# -ne 1 ]; then
+    usage $OCF_ERR_ARGS
+fi
+
+case $1 in
+    meta-data)  meta_data;;
+    start)      rep_start;;
+    stop)       rep_stop;;
+    status)     rep_status;;
+    monitor)    rep_monitor;;
+    validate-all)    rep_validate_all;;
+    usage)      usage $OCF_SUCCESS;;
+    *)          usage $OCF_SUCCESS;;
+esac
+
+exit $?
+

@@ -1,0 +1,8 @@
+[mysqld]
+server-id                       = <%= node['nodeid'] %>
+bind-addres                     = 0.0.0.0
+relay-log                       = /var/log/mysql/mysql-relay-bin.log
+log_bin                         = /var/log/mysql/mysql-bin.log
+binlog_ignore_db                = information_schema
+max_connect_errors              = 180
+innodb_max_dirty_pages_pct      = 0

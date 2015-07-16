@@ -1,0 +1,6 @@
+[mysqld]
+server-id                       = <%= node['nodeid'] %>
+bind-addres                     = 0.0.0.0
+log_bin                         = /var/log/mysql/mysql-bin.log
+binlog_ignore_db                = information_schema
+max_connect_errors              = 180

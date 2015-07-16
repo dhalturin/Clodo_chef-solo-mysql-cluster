@@ -1,0 +1,69 @@
+#
+# Cookbook Name:: mmy
+# Recipe:: default
+#
+# Copyright 2015, YOUR_COMPANY_NAME
+#
+# All rights reserved - Do Not Redistribute
+#
+
+include_recipe "apt"
+
+#template "/root/.ssh/id_rsa" do
+#  source "id_rsa"
+#  mode "0600"
+#end
+
+#template "/root/.ssh/id_rsa.pub" do
+#  source "id_rsa.pub"
+#  mode "0600"
+#end
+
+#execute "ssh-copi-id" do
+#  command "mkdir -p /root/.ssh; grep mmy /root/.ssh/authorized_keys || cat /root/.ssh/id_rsa.pub >> /root/.ssh/authorized_keys"
+#end
+
+#if platform?(%w{debian ubuntu})
+  apt_repository "sid" do
+    uri "http://mirror.yandex.ru/debian"
+    distribution "sid"
+    components ["main"]
+    action :add
+  end
+
+  execute "apt-get update" do
+    command "apt-get update"
+  end
+#end
+
+package 'mysql-server' do
+  action :install
+end
+
+template "/tmp/drop_user.sql" do
+  source "drop_user.sql.erb"
+  owner "root"
+  group "root"
+  mode "0600"
+end
+
+cookbook_file "/etc/init.d/mysqld_skip_grant" do
+  source "mysqld_safe"
+  mode "0777"
+end
+
+service "mysqld_skip_grant" do
+  action :start
+end
+
+file "/tmp/drop_user.sql" do
+  action :delete
+end
+
+file "/etc/init.d/mysqld_skip_grant" do
+  action :delete
+end
+
+#service "mysql" do
+#  action :stop
+#end

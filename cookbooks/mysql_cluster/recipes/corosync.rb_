@@ -1,0 +1,73 @@
+#
+# Cookbook Name:: mmy
+# Recipe:: default
+#
+# Copyright 2015, YOUR_COMPANY_NAME
+#
+# All rights reserved - Do Not Redistribute
+#
+
+file "/var/lib/mysql/.lock" do
+  action :touch
+end
+
+package 'pacemaker' do
+  action :install
+end
+
+package 'pacemaker-dev' do
+  action :install
+end
+
+package 'corosync' do
+  action :install
+end
+
+template "/etc/default/corosync" do
+  source "corosync.default.erb"
+  owner "root"
+  group "root"
+  mode "0600"
+end
+
+template "/etc/corosync/corosync.conf" do
+  source "corosync.conf.erb"
+  owner "root"
+  group "root"
+  mode "0600"
+end
+
+template "/usr/lib/ocf/resource.d/heartbeat/mmy" do
+  source "mmy.resource.erb"
+  owner "root"
+  group "root"
+  mode "0700"
+end
+
+template "/tmp/crm.cfg" do
+  source "crm.configure.erb"
+  owner "root"
+  group "root"
+  mode "0600"
+end
+
+bash "reload services" do
+  code <<-E
+    service pacemaker stop; echo $?
+    service corosync restart; echo $?
+    service pacemaker start; echo $?
+    sleep 2
+  E
+end
+
+bash "import" do
+  code <<-E
+    crm configure property stonith-enabled=false
+    crm configure load update /tmp/crm.cfg
+    sleep 2
+  E
+end
+
+file "/var/lib/mysql/.lock" do
+  action :delete
+end

@@ -1,0 +1,15 @@
+#!/bin/bash
+
+pgrep mysqld && killall -9 mysqld_safe mysqld || echo
+
+sleep 1
+mysqld_safe --skip-grant-tables &
+
+echo "M $?"
+sleep 5
+sed -i "s/_auth_key_/`cat /tmp/mysql_pass`/g" /tmp/drop_user.sql
+mysql < /tmp/drop_user.sql
+
+#rm /tmp/mysql_pass /tmp/drop_user.sql /etc/init.d/mysqld_skip_grant
+
+killall -9 mysqld_safe mysqld 

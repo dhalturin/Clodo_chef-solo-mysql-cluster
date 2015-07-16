@@ -1,0 +1,6 @@
+delete from mysql.user where User = "root";
+flush privileges;
+create user 'root'@'%' identified by '_auth_key_';
+grant all on *.* to 'root'@'%' with grant option;
+flush privileges;
+drop database if exists test

@@ -1,0 +1,41 @@
+compatibility: whitetank
+
+totem {
+    version:    2
+    secauth:    off
+    nodeid:     <%= node['nodeid'] %>
+    interface {
+members
+        ringnumber:     0
+        bindnetaddr:    <%= node['ipaddress'] %>
+        mcastport:      5405
+        ttl:            1
+    }
+    transport:  udpu
+}
+
+amf {
+    mode:   disabled
+}
+
+service {
+    ver:    1
+    name:   pacemaker
+}
+
+aisexec {
+    user:   root
+    group:  root
+}
+
+logging {
+    fileline: off
+    to_logfile: no
+    to_syslog: yes
+    debug: off
+    timestamp: on
+    logger_subsys {
+        subsys: AMF
+        debug: off
+    }
+}
